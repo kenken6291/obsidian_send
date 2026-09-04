@@ -9,6 +9,7 @@
   :root{
     --bg: #16151b;
     --panel: #1e1d26;
+    --panel2: #232230;
     --ink: #e8e6f0;
     --ink-dim: #8b899c;
     --accent: #8b6ef2;
@@ -19,7 +20,7 @@
   }
   *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body{
-    margin:0; padding:0; height:100%;
+    margin:0; padding:0; min-height:100%;
     background: var(--bg);
     color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
@@ -30,134 +31,130 @@
     min-height: 100dvh;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
-
-  header{
-    padding: 22px 20px 14px;
-    border-bottom: 1px solid var(--line);
-  }
-  .mark{
-    display:flex;
-    align-items:baseline;
-    gap:8px;
-  }
+  .wrap{ max-width: 480px; width:100%; margin: 0 auto; padding: 0 16px 24px; flex:1; display:flex; flex-direction:column; }
+  header{ padding: 22px 0 14px; border-bottom: 1px solid var(--line); }
+  .mark{ display:flex; align-items:baseline; gap:8px; }
   .mark svg{ flex:none; }
-  h1{
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    margin:0;
+  h1{ font-size: 17px; font-weight: 600; letter-spacing: 0.02em; margin:0; }
+  .sub{ margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); }
+  h2{ font-size: 14px; margin: 22px 0 8px; color: var(--ink); }
+
+  label{ display:block; font-size: 12.5px; color: var(--ink-dim); margin: 12px 0 5px; }
+  input[type=email], input[type=password], input[type=text], input[type=date], textarea{
+    width:100%; padding: 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); font-size: 15px; font-family: inherit;
   }
-  .sub{
-    margin: 4px 0 0;
-    font-size: 12.5px;
-    color: var(--ink-dim);
-    font-variant-numeric: tabular-nums;
+  input[type=date]{ color-scheme: dark; }
+  textarea{ resize: vertical; min-height: 110px; line-height: 1.6; }
+
+  .pw-field{ position:relative; }
+  .pw-field input{ padding-right: 44px; }
+  .pw-toggle{
+    position:absolute; right:10px; top:50%; transform: translateY(-50%);
+    background:none; border:0; padding:4px; cursor:pointer; font-size: 1.05rem; color: var(--ink-dim);
   }
 
-  main{
-    flex:1;
-    display:flex;
-    flex-direction:column;
-    padding: 16px 16px 0;
-    min-height:0;
+  button{ cursor:pointer; font-family: inherit; }
+  .btn-primary{
+    width:100%; padding: 14px; border:0; border-radius: 12px; margin-top: 14px;
+    background: var(--accent); color:#100e18; font-size: 15.5px; font-weight:700;
+    transition: transform .08s ease, opacity .15s ease;
+  }
+  .btn-primary:active{ transform: scale(0.98); }
+  .btn-primary:disabled{ background: var(--accent-dim); color:#a89ee0; }
+  .btn-secondary{
+    width:100%; padding: 12px; border-radius: 12px; margin-top: 10px;
+    background: transparent; color: var(--accent); border:1px solid var(--accent-dim); font-size: 14px; font-weight:600;
+  }
+  .btn-outline-sm{
+    padding: 7px 12px; border-radius: 8px; background: var(--panel2); color: var(--ink);
+    border:1px solid var(--line); font-size: 12.5px;
+  }
+  .btn-danger-sm{
+    padding: 7px 12px; border-radius: 8px; background: rgba(226,109,109,0.12); color: var(--bad);
+    border:1px solid rgba(226,109,109,0.35); font-size: 12.5px;
+  }
+  .btn-mic{
+    width:100%; padding: 13px; border-radius: 12px; margin-top: 8px;
+    background: var(--panel2); color: var(--ink); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; gap:8px; font-size:14.5px; font-weight:600;
+  }
+  .btn-mic.recording{ background: var(--bad); color:#100e18; animation: pulse 1.2s infinite; }
+  @keyframes pulse{ 0%{opacity:1;} 50%{opacity:.6;} 100%{opacity:1;} }
+
+  .toggle-link, .back-link{ text-align:center; margin-top: 14px; font-size: 13px; color: var(--ink-dim); }
+  .toggle-link a, .back-link, .forgot-link a{ color: var(--accent); cursor:pointer; }
+  .forgot-link{ text-align:right; font-size: 12px; margin-top: 6px; }
+
+  .msg{ margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display:none; }
+  .msg.error{ background: rgba(226,109,109,0.14); color: var(--bad); display:block; }
+  .msg.success{ background: rgba(110,212,154,0.14); color: var(--good); display:block; }
+  .hidden{ display:none !important; }
+
+  .top-bar{ display:flex; justify-content:space-between; align-items:center; padding: 16px 0 6px; }
+  .top-bar .user-info{ font-size: 12.5px; color: var(--ink-dim); display:flex; align-items:center; gap:6px; }
+  .top-bar .nickname{ color: var(--ink); font-weight:700; }
+  .top-actions{ display:flex; gap: 12px; font-size: 11.5px; }
+  .top-actions span{ color: var(--accent); cursor:pointer; }
+
+  .inline-panel{ margin-top: 14px; padding: 14px; background: var(--panel); border:1px solid var(--line); border-radius: 12px; }
+
+  .tabs{ display:flex; gap:6px; margin-top: 14px; }
+  .tab-btn{
+    flex:1; padding: 9px 4px; text-align:center; border-radius: 10px; font-size: 12.5px; font-weight:600;
+    background: var(--panel); color: var(--ink-dim); border:1px solid var(--line);
+  }
+  .tab-btn.active{ background: var(--accent-dim); color: var(--ink); border-color: var(--accent); }
+  .tab-panel{ display:none; margin-top: 10px; }
+  .tab-panel.active{ display:block; }
+
+  canvas#padCanvas{
+    width:100%; height: 220px; background:#ffffff; border-radius: 12px; touch-action:none; display:block;
+  }
+  .pad-actions{ display:flex; gap:8px; margin-top:8px; }
+  .pad-actions button{ flex:1; }
+
+  .thumbs{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
+  .thumb{ position:relative; width:64px; height:64px; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .thumb .rm{
+    position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%;
+    background: rgba(0,0,0,0.65); color:#fff; border:0; font-size:11px; line-height:18px; padding:0; text-align:center;
   }
 
-  .field{
-    flex:1;
-    display:flex;
-    min-height: 0;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    overflow:hidden;
-    transition: border-color .15s ease;
-  }
-  .field:focus-within{
-    border-color: var(--accent-dim);
-  }
-  textarea{
-    flex:1;
-    width:100%;
-    border:0;
-    outline:0;
-    resize:none;
-    background: transparent;
-    color: var(--ink);
-    font-size: 16px;
-    line-height: 1.65;
-    padding: 16px;
-    font-family: inherit;
-  }
-  textarea::placeholder{ color: #56546a; }
-
-  .meta-row{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding: 10px 4px 4px;
-    font-size: 12px;
-    color: var(--ink-dim);
-    font-variant-numeric: tabular-nums;
-  }
-  .meta-row button{
-    background:none;
-    border:0;
-    color: var(--ink-dim);
-    font-size: 12px;
-    padding: 4px 6px;
-    cursor:pointer;
-  }
-  .meta-row button:active{ color: var(--ink); }
-
-  footer{
-    padding: 10px 16px calc(18px + env(safe-area-inset-bottom));
+  .result-box{
+    margin-top: 14px; background: var(--panel); border:1px solid var(--line); border-radius: 10px;
+    padding: 12px; font-size: 13px; white-space:pre-wrap; display:none;
+    font-family: "SFMono-Regular", Consolas, "Courier New", monospace; color:#c9c6da;
+    max-height: 260px; overflow-y:auto;
   }
 
-  .status{
-    min-height: 18px;
-    font-size: 12.5px;
-    text-align:center;
-    margin-bottom: 10px;
-    transition: opacity .2s ease;
-  }
-  .status.ok{ color: var(--good); }
-  .status.err{ color: var(--bad); }
-  .status.hidden{ opacity:0; }
+  .filter-row{ display:flex; gap:8px; align-items:flex-end; }
+  .filter-row > div{ flex:1; }
+  .filter-row button{ white-space:nowrap; }
 
-  .send-btn{
-    width:100%;
-    padding: 16px;
-    border-radius: 14px;
-    border: 0;
-    background: var(--accent);
-    color: #100e18;
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    cursor:pointer;
-    transition: transform .08s ease, opacity .15s ease, background .15s ease;
+  .memo-item{
+    padding: 12px; background: var(--panel); border:1px solid var(--line); border-radius: 10px; margin-top: 10px;
   }
-  .send-btn:active{ transform: scale(0.98); }
-  .send-btn:disabled{
-    background: var(--accent-dim);
-    color: #a89ee0;
-    cursor: default;
-  }
+  .memo-item .memo-head{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .memo-item .memo-name{ font-size: 13px; font-weight:700; color: var(--ink); }
+  .memo-item .memo-snippet{ font-size: 12.5px; color: var(--ink-dim); margin-top: 4px; }
+  .memo-detail{ margin-top: 10px; }
+  .memo-detail textarea{ min-height: 200px; font-size: 13px; }
+  .memo-detail .memo-detail-actions{ display:flex; gap:8px; margin-top:8px; }
+  .empty-note{ font-size: 12.5px; color: var(--ink-dim); text-align:center; padding: 14px 0; }
 
-  .spinner{
-    display:inline-block;
-    width:15px; height:15px;
-    border-radius:50%;
-    border: 2px solid rgba(255,255,255,0.35);
-    border-top-color: #100e18;
-    animation: spin .7s linear infinite;
-    vertical-align: -3px;
-    margin-right: 8px;
+  .loading{
+    display:inline-block; width:15px; height:15px; border-radius:50%;
+    border: 2px solid rgba(255,255,255,0.35); border-top-color: #100e18;
+    animation: spin .7s linear infinite; vertical-align:-3px; margin-right:8px;
   }
   @keyframes spin{ to{ transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+<div class="wrap">
 
 <header>
   <div class="mark">
@@ -170,95 +167,570 @@
   <p class="sub">思いついたことをそのまま送る。整形とタグ付けはAIが行う。</p>
 </header>
 
-<main>
-  <div class="field">
-    <textarea id="text" placeholder="ここに入力…" autofocus></textarea>
+<!-- ===== ログイン ===== -->
+<div id="loginView">
+  <label>メールアドレス</label>
+  <input type="email" id="loginEmail" placeholder="you@example.com">
+  <label>パスワード</label>
+  <div class="pw-field">
+    <input type="password" id="loginPassword" placeholder="••••••••">
+    <button type="button" class="pw-toggle" data-target="loginPassword">👁️</button>
   </div>
-  <div class="meta-row">
-    <span id="count">0文字</span>
-    <button type="button" id="clearBtn">クリア</button>
-  </div>
-</main>
+  <div class="forgot-link"><a id="showForgot">パスワードをお忘れの方</a></div>
+  <button class="btn-primary" id="loginBtn">ログイン</button>
+  <div class="toggle-link">アカウントがない方は <a id="showRegister">会員登録</a></div>
+  <div id="loginMsg" class="msg"></div>
+</div>
 
-<footer>
-  <div id="status" class="status hidden"></div>
-  <button id="sendBtn" class="send-btn">保管庫へ送る</button>
-</footer>
+<!-- ===== 会員登録 ===== -->
+<div id="registerView" class="hidden">
+  <label>ニックネーム</label>
+  <input type="text" id="regNickname" placeholder="表示名（未入力可）">
+  <label>メールアドレス</label>
+  <input type="email" id="regEmail" placeholder="you@example.com">
+  <label>パスワード（6文字以上）</label>
+  <div class="pw-field">
+    <input type="password" id="regPassword" placeholder="••••••••">
+    <button type="button" class="pw-toggle" data-target="regPassword">👁️</button>
+  </div>
+  <button class="btn-primary" id="registerBtn">登録する</button>
+  <div class="toggle-link">既にアカウントがある方は <a id="showLoginFromRegister">ログイン</a></div>
+  <div id="registerMsg" class="msg"></div>
+</div>
+
+<!-- ===== パスワード忘れ ===== -->
+<div id="forgotView" class="hidden">
+  <p class="sub">登録済みのメールアドレスに仮パスワードを送信します</p>
+  <label>メールアドレス</label>
+  <input type="email" id="forgotEmail" placeholder="you@example.com">
+  <button class="btn-primary" id="forgotBtn">仮パスワードを送信</button>
+  <div class="back-link" id="backToLoginFromForgot">← ログイン画面に戻る</div>
+  <div id="forgotMsg" class="msg"></div>
+</div>
+
+<!-- ===== 強制パスワード再登録 ===== -->
+<div id="forcedResetView" class="hidden">
+  <p class="sub">仮パスワードでログインしました。新しいパスワードを設定してください。</p>
+  <label>新しいパスワード（6文字以上）</label>
+  <div class="pw-field">
+    <input type="password" id="forcedNewPassword" placeholder="••••••••">
+    <button type="button" class="pw-toggle" data-target="forcedNewPassword">👁️</button>
+  </div>
+  <label>新しいパスワード（確認）</label>
+  <div class="pw-field">
+    <input type="password" id="forcedNewPasswordConfirm" placeholder="••••••••">
+    <button type="button" class="pw-toggle" data-target="forcedNewPasswordConfirm">👁️</button>
+  </div>
+  <button class="btn-primary" id="forcedResetBtn">パスワードを再登録する</button>
+  <div id="forcedResetMsg" class="msg"></div>
+</div>
+
+<!-- ===== メイン画面 ===== -->
+<div id="mainView" class="hidden">
+  <div class="top-bar">
+    <div class="user-info">
+      <span class="nickname" id="userNicknameLabel"></span>
+      <span style="color:var(--accent);cursor:pointer;font-size:11.5px;" id="editNicknameBtn">✎編集</span>
+    </div>
+    <div class="top-actions">
+      <span id="changePwBtn">パスワード変更</span>
+      <span id="logoutBtn">ログアウト</span>
+    </div>
+  </div>
+
+  <!-- ニックネーム編集パネル -->
+  <div id="nicknamePanel" class="inline-panel hidden">
+    <label>ニックネーム</label>
+    <input type="text" id="nicknameInput" placeholder="表示名">
+    <button class="btn-primary" id="saveNicknameBtn">保存する</button>
+    <div class="back-link" id="cancelNicknameBtn">キャンセル</div>
+    <div id="nicknameMsg" class="msg"></div>
+  </div>
+
+  <!-- パスワード変更パネル -->
+  <div id="changePwPanel" class="inline-panel hidden">
+    <label>新しいパスワード（6文字以上）</label>
+    <div class="pw-field">
+      <input type="password" id="changePwNew" placeholder="••••••••">
+      <button type="button" class="pw-toggle" data-target="changePwNew">👁️</button>
+    </div>
+    <label>新しいパスワード（確認）</label>
+    <div class="pw-field">
+      <input type="password" id="changePwNewConfirm" placeholder="••••••••">
+      <button type="button" class="pw-toggle" data-target="changePwNewConfirm">👁️</button>
+    </div>
+    <button class="btn-primary" id="savePwBtn">パスワードを変更する</button>
+    <div class="back-link" id="cancelPwBtn">キャンセル</div>
+    <div id="changePwMsg" class="msg"></div>
+  </div>
+
+  <div id="mainPostArea">
+    <h2>新しいメモ</h2>
+    <div class="tabs">
+      <button type="button" class="tab-btn active" data-tab="textTab">文字・音声</button>
+      <button type="button" class="tab-btn" data-tab="handTab">手書き</button>
+      <button type="button" class="tab-btn" data-tab="photoTab">写真</button>
+    </div>
+
+    <div id="textTab" class="tab-panel active">
+      <button class="btn-mic" id="micBtn">🎙️ 音声入力を開始</button>
+      <label>内容（音声認識の結果を修正できます）</label>
+      <textarea id="noteText" placeholder="思いついたことをそのまま入力・発話してください"></textarea>
+    </div>
+
+    <div id="handTab" class="tab-panel">
+      <label>この枠に手書きしてください</label>
+      <canvas id="padCanvas"></canvas>
+      <div class="pad-actions">
+        <button type="button" class="btn-outline-sm" id="padClearBtn">クリア</button>
+        <button type="button" class="btn-outline-sm" id="padAddBtn">この手書きを追加</button>
+      </div>
+    </div>
+
+    <div id="photoTab" class="tab-panel">
+      <label>写真を選択・撮影</label>
+      <input type="file" id="photoInput" accept="image/*" capture="environment" multiple>
+    </div>
+
+    <div id="attachedThumbs" class="thumbs"></div>
+
+    <button class="btn-primary" id="submitBtn">保管庫へ送る</button>
+    <div id="postMsg" class="msg"></div>
+    <div id="resultBox" class="result-box"></div>
+
+    <h2>メモ一覧</h2>
+    <div class="filter-row">
+      <div>
+        <label>日付で絞り込み</label>
+        <input type="date" id="filterDate">
+      </div>
+      <button type="button" class="btn-outline-sm" id="applyFilterBtn">絞り込む</button>
+      <button type="button" class="btn-outline-sm" id="clearFilterBtn">全件</button>
+    </div>
+    <div id="memoListMsg" class="msg"></div>
+    <div id="memoList"></div>
+  </div>
+</div>
+
+</div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbxfyTzFRWFpDRmjqNZHJXcTogI54B8nBTmmBWJ33s88TItEnVBhbqome3uGFC4bmXhY/exec";
-  const DRAFT_KEY = "kenji-souko-draft";
+// GASをウェブアプリとして公開したときのURLに置き換えてください
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwf9ROswJQ3oawIBtCWJc71CKbgJE1bZ04uDe85lCLVzR40x8xz4Lk4d15FVL-PuFel/exec';
 
-  const textEl = document.getElementById("text");
-  const countEl = document.getElementById("count");
-  const clearBtn = document.getElementById("clearBtn");
-  const sendBtn = document.getElementById("sendBtn");
-  const statusEl = document.getElementById("status");
+const $ = (id) => document.getElementById(id);
 
-  // 下書き復元（送信失敗・誤タップ対策）
-  try{
-    const saved = localStorage.getItem(DRAFT_KEY);
-    if (saved) textEl.value = saved;
-  }catch(e){}
-  updateCount();
-
-  textEl.addEventListener("input", () => {
-    updateCount();
-    try{ localStorage.setItem(DRAFT_KEY, textEl.value); }catch(e){}
+function showOnly(viewId) {
+  ['loginView', 'registerView', 'forgotView', 'forcedResetView', 'mainView'].forEach((id) => {
+    $(id).classList.toggle('hidden', id !== viewId);
   });
+}
+function setMsg(el, text, type) { el.className = 'msg ' + type; el.textContent = text; }
+function clearMsg(el) { el.className = 'msg'; el.textContent = ''; }
 
-  function updateCount(){
-    countEl.textContent = textEl.value.length + "文字";
-  }
-
-  clearBtn.addEventListener("click", () => {
-    textEl.value = "";
-    updateCount();
-    try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-    textEl.focus();
+document.querySelectorAll('.pw-toggle').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const target = $(btn.dataset.target);
+    if (target.type === 'password') { target.type = 'text'; btn.textContent = '🙈'; }
+    else { target.type = 'password'; btn.textContent = '👁️'; }
   });
+});
 
-  function setStatus(msg, kind){
-    statusEl.textContent = msg;
-    statusEl.className = "status" + (kind ? " " + kind : "");
-  }
+$('showRegister').addEventListener('click', () => showOnly('registerView'));
+$('showLoginFromRegister').addEventListener('click', () => showOnly('loginView'));
+$('showForgot').addEventListener('click', () => showOnly('forgotView'));
+$('backToLoginFromForgot').addEventListener('click', () => showOnly('loginView'));
 
-  sendBtn.addEventListener("click", async () => {
-    const text = textEl.value.trim();
-    if (!text){
-      setStatus("テキストが空です", "err");
-      return;
+async function callApi(action, data) {
+  const res = await fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action }, data))
+  });
+  if (!res.ok) throw new Error('通信エラー: ' + res.status);
+  return res.json();
+}
+
+// ---------- 会員登録 ----------
+$('registerBtn').addEventListener('click', async () => {
+  const nickname = $('regNickname').value.trim();
+  const email = $('regEmail').value.trim();
+  const password = $('regPassword').value;
+  const msgEl = $('registerMsg');
+  if (!email || password.length < 6) { setMsg(msgEl, 'メールアドレスと6文字以上のパスワードを入力してください。', 'error'); return; }
+  $('registerBtn').disabled = true;
+  try {
+    const result = await callApi('register', { email, password, nickname });
+    if (result.ok) {
+      setMsg(msgEl, result.message, 'success');
+      $('loginEmail').value = email;
+      showOnly('loginView');
+    } else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('registerBtn').disabled = false; }
+});
+
+// ---------- ログイン ----------
+$('loginBtn').addEventListener('click', async () => {
+  const email = $('loginEmail').value.trim();
+  const password = $('loginPassword').value;
+  const msgEl = $('loginMsg');
+  if (!email || !password) { setMsg(msgEl, 'メールアドレスとパスワードを入力してください。', 'error'); return; }
+  $('loginBtn').disabled = true;
+  try {
+    const result = await callApi('login', { email, password });
+    if (result.ok) {
+      localStorage.setItem('ks_token', result.token);
+      localStorage.setItem('ks_email', result.email);
+      localStorage.setItem('ks_nickname', result.nickname || result.email);
+      if (result.requiresPasswordReset) showOnly('forcedResetView');
+      else enterMainView(result.nickname || result.email);
+    } else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('loginBtn').disabled = false; }
+});
+
+// ---------- パスワード忘れ ----------
+$('forgotBtn').addEventListener('click', async () => {
+  const email = $('forgotEmail').value.trim();
+  const msgEl = $('forgotMsg');
+  if (!email) { setMsg(msgEl, 'メールアドレスを入力してください。', 'error'); return; }
+  $('forgotBtn').disabled = true;
+  try {
+    const result = await callApi('forgotPassword', { email });
+    if (result.ok) setMsg(msgEl, result.message, 'success'); else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('forgotBtn').disabled = false; }
+});
+
+// ---------- 強制パスワード再登録 ----------
+$('forcedResetBtn').addEventListener('click', async () => {
+  const newPassword = $('forcedNewPassword').value;
+  const confirmPassword = $('forcedNewPasswordConfirm').value;
+  const msgEl = $('forcedResetMsg');
+  const token = localStorage.getItem('ks_token');
+  if (newPassword.length < 6) { setMsg(msgEl, '新しいパスワードは6文字以上にしてください。', 'error'); return; }
+  if (newPassword !== confirmPassword) { setMsg(msgEl, '確認用パスワードが一致しません。', 'error'); return; }
+  $('forcedResetBtn').disabled = true;
+  try {
+    const result = await callApi('resetPassword', { token, newPassword });
+    if (result.ok) enterMainView(localStorage.getItem('ks_nickname'));
+    else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('forcedResetBtn').disabled = false; }
+});
+
+// ---------- ログアウト ----------
+$('logoutBtn').addEventListener('click', () => {
+  localStorage.removeItem('ks_token');
+  localStorage.removeItem('ks_email');
+  localStorage.removeItem('ks_nickname');
+  showOnly('loginView');
+});
+
+function enterMainView(nickname) {
+  showOnly('mainView');
+  $('userNicknameLabel').textContent = nickname;
+  refreshMemoList();
+}
+
+// ---------- ニックネーム編集 ----------
+$('editNicknameBtn').addEventListener('click', () => {
+  $('nicknameInput').value = localStorage.getItem('ks_nickname') || '';
+  $('mainPostArea').classList.add('hidden');
+  $('changePwPanel').classList.add('hidden');
+  $('nicknamePanel').classList.remove('hidden');
+});
+$('cancelNicknameBtn').addEventListener('click', () => {
+  $('nicknamePanel').classList.add('hidden');
+  $('mainPostArea').classList.remove('hidden');
+});
+$('saveNicknameBtn').addEventListener('click', async () => {
+  const nickname = $('nicknameInput').value.trim();
+  const msgEl = $('nicknameMsg');
+  const token = localStorage.getItem('ks_token');
+  if (!nickname) { setMsg(msgEl, 'ニックネームを入力してください。', 'error'); return; }
+  $('saveNicknameBtn').disabled = true;
+  try {
+    const result = await callApi('updateNickname', { token, nickname });
+    if (result.ok) {
+      localStorage.setItem('ks_nickname', result.nickname);
+      $('userNicknameLabel').textContent = result.nickname;
+      setMsg(msgEl, 'ニックネームを更新しました。', 'success');
+      setTimeout(() => { $('nicknamePanel').classList.add('hidden'); $('mainPostArea').classList.remove('hidden'); clearMsg(msgEl); }, 900);
+    } else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('saveNicknameBtn').disabled = false; }
+});
+
+// ---------- パスワード変更 ----------
+$('changePwBtn').addEventListener('click', () => {
+  $('changePwNew').value = ''; $('changePwNewConfirm').value = '';
+  $('mainPostArea').classList.add('hidden');
+  $('nicknamePanel').classList.add('hidden');
+  $('changePwPanel').classList.remove('hidden');
+});
+$('cancelPwBtn').addEventListener('click', () => {
+  $('changePwPanel').classList.add('hidden');
+  $('mainPostArea').classList.remove('hidden');
+});
+$('savePwBtn').addEventListener('click', async () => {
+  const newPassword = $('changePwNew').value;
+  const confirmPassword = $('changePwNewConfirm').value;
+  const msgEl = $('changePwMsg');
+  const token = localStorage.getItem('ks_token');
+  if (newPassword.length < 6) { setMsg(msgEl, '新しいパスワードは6文字以上にしてください。', 'error'); return; }
+  if (newPassword !== confirmPassword) { setMsg(msgEl, '確認用パスワードが一致しません。', 'error'); return; }
+  $('savePwBtn').disabled = true;
+  try {
+    const result = await callApi('resetPassword', { token, newPassword });
+    if (result.ok) {
+      setMsg(msgEl, 'パスワードを変更しました。', 'success');
+      setTimeout(() => { $('changePwPanel').classList.add('hidden'); $('mainPostArea').classList.remove('hidden'); clearMsg(msgEl); }, 900);
+    } else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('savePwBtn').disabled = false; }
+});
+
+// ---------- タブ切り替え ----------
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'handTab') setupPadCanvasSize();
+  });
+});
+
+// ---------- 音声入力 ----------
+let recognition = null, isRecording = false;
+function setupSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { $('micBtn').disabled = true; $('micBtn').textContent = '🎙️ このブラウザは音声入力に対応していません'; return; }
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ja-JP'; recognition.interimResults = true; recognition.continuous = true;
+  let baseText = '';
+  recognition.onstart = () => { baseText = $('noteText').value; if (baseText && !baseText.endsWith(' ') && !baseText.endsWith('\n')) baseText += ' '; };
+  recognition.onresult = (event) => {
+    let interim = '', final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      if (event.results[i].isFinal) final += t; else interim += t;
     }
+    if (final) baseText += final;
+    $('noteText').value = baseText + interim;
+  };
+  recognition.onerror = (event) => { setMsg($('postMsg'), '音声認識エラー: ' + event.error, 'error'); stopRecording(); };
+  recognition.onend = () => { if (isRecording) { try { recognition.start(); } catch (e) { stopRecording(); } } };
+}
+setupSpeechRecognition();
+function startRecording() { if (!recognition) return; isRecording = true; recognition.start(); $('micBtn').textContent = '⏹️ 音声入力を停止'; $('micBtn').classList.add('recording'); }
+function stopRecording() { isRecording = false; if (recognition) recognition.stop(); $('micBtn').textContent = '🎙️ 音声入力を開始'; $('micBtn').classList.remove('recording'); }
+$('micBtn').addEventListener('click', () => { if (isRecording) stopRecording(); else startRecording(); });
 
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span class="spinner"></span>送信中…';
-    setStatus("", "hidden");
+// ---------- 添付画像（手書き・写真 共通） ----------
+let attachedImages = []; // {mimeType, data(base64 raw), previewUrl}
 
-    try{
-      const res = await fetch(GAS_URL, {
-        method: "POST",
-        // text/plain にすることでプリフライトを回避（GAS側はcontentsを生JSONとして読む）
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ text })
+function renderThumbs() {
+  const wrap = $('attachedThumbs');
+  wrap.innerHTML = '';
+  attachedImages.forEach((img, idx) => {
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    div.innerHTML = '<img src="' + img.previewUrl + '"><button type="button" class="rm" data-idx="' + idx + '">×</button>';
+    wrap.appendChild(div);
+  });
+  wrap.querySelectorAll('.rm').forEach((btn) => {
+    btn.addEventListener('click', () => { attachedImages.splice(Number(btn.dataset.idx), 1); renderThumbs(); });
+  });
+}
+
+// ---------- 手書きパッド ----------
+const padCanvas = $('padCanvas');
+const padCtx = padCanvas.getContext('2d');
+let drawing = false, lastX = 0, lastY = 0;
+
+function setupPadCanvasSize() {
+  const rect = padCanvas.getBoundingClientRect();
+  if (padCanvas.width !== rect.width || padCanvas.height !== rect.height) {
+    padCanvas.width = rect.width;
+    padCanvas.height = rect.height;
+    padCtx.fillStyle = '#ffffff';
+    padCtx.fillRect(0, 0, padCanvas.width, padCanvas.height);
+    padCtx.strokeStyle = '#111111';
+    padCtx.lineWidth = 3;
+    padCtx.lineCap = 'round';
+  }
+}
+window.addEventListener('resize', setupPadCanvasSize);
+
+function getPos(e) {
+  const rect = padCanvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY);
+  return { x: cx - rect.left, y: cy - rect.top };
+}
+function startDraw(e) { drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; e.preventDefault(); }
+function moveDraw(e) {
+  if (!drawing) return;
+  const p = getPos(e);
+  padCtx.beginPath(); padCtx.moveTo(lastX, lastY); padCtx.lineTo(p.x, p.y); padCtx.stroke();
+  lastX = p.x; lastY = p.y; e.preventDefault();
+}
+function endDraw() { drawing = false; }
+padCanvas.addEventListener('mousedown', startDraw);
+padCanvas.addEventListener('mousemove', moveDraw);
+window.addEventListener('mouseup', endDraw);
+padCanvas.addEventListener('touchstart', startDraw, { passive: false });
+padCanvas.addEventListener('touchmove', moveDraw, { passive: false });
+padCanvas.addEventListener('touchend', endDraw);
+
+$('padClearBtn').addEventListener('click', () => {
+  padCtx.fillStyle = '#ffffff';
+  padCtx.fillRect(0, 0, padCanvas.width, padCanvas.height);
+});
+$('padAddBtn').addEventListener('click', () => {
+  const dataUrl = padCanvas.toDataURL('image/png');
+  attachedImages.push({ mimeType: 'image/png', data: dataUrl.split(',')[1], previewUrl: dataUrl });
+  renderThumbs();
+  padCtx.fillStyle = '#ffffff';
+  padCtx.fillRect(0, 0, padCanvas.width, padCanvas.height);
+  setMsg($('postMsg'), '手書きを追加しました。', 'success');
+});
+
+// ---------- 写真入力 ----------
+$('photoInput').addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  files.forEach((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      attachedImages.push({ mimeType: file.type || 'image/jpeg', data: dataUrl.split(',')[1], previewUrl: dataUrl });
+      renderThumbs();
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+});
+
+// ---------- メモ送信 ----------
+$('submitBtn').addEventListener('click', async () => {
+  const text = $('noteText').value.trim();
+  const msgEl = $('postMsg');
+  const token = localStorage.getItem('ks_token');
+  if (!text && attachedImages.length === 0) { setMsg(msgEl, '内容を入力するか、手書き・写真を追加してください。', 'error'); return; }
+  if (!token) { setMsg(msgEl, 'セッションが切れています。再ログインしてください。', 'error'); return; }
+  if (isRecording) stopRecording();
+
+  $('submitBtn').disabled = true;
+  $('submitBtn').innerHTML = '<span class="loading"></span>Geminiで整形して保存中...';
+  $('resultBox').style.display = 'none';
+
+  try {
+    const images = attachedImages.map((i) => ({ mimeType: i.mimeType, data: i.data }));
+    const result = await callApi('createMemo', { token, text, images });
+    if (result.ok) {
+      setMsg(msgEl, result.fileName + ' を保存しました。', 'success');
+      $('resultBox').style.display = 'block';
+      $('resultBox').textContent = result.content;
+      $('noteText').value = '';
+      attachedImages = [];
+      renderThumbs();
+      refreshMemoList();
+    } else setMsg(msgEl, result.error, 'error');
+  } catch (err) { setMsg(msgEl, err.message, 'error'); }
+  finally { $('submitBtn').disabled = false; $('submitBtn').textContent = '保管庫へ送る'; }
+});
+
+// ---------- メモ一覧・表示・編集・削除 ----------
+let currentFilterDate = '';
+
+$('applyFilterBtn').addEventListener('click', () => { currentFilterDate = $('filterDate').value || ''; refreshMemoList(); });
+$('clearFilterBtn').addEventListener('click', () => { $('filterDate').value = ''; currentFilterDate = ''; refreshMemoList(); });
+
+async function refreshMemoList() {
+  const token = localStorage.getItem('ks_token');
+  const msgEl = $('memoListMsg');
+  const listEl = $('memoList');
+  if (!token) return;
+  clearMsg(msgEl);
+  listEl.innerHTML = '<p class="empty-note">読み込み中...</p>';
+  try {
+    const result = await callApi('listMemos', { token, date: currentFilterDate });
+    if (!result.ok) { setMsg(msgEl, result.error, 'error'); listEl.innerHTML = ''; return; }
+    if (result.memos.length === 0) { listEl.innerHTML = '<p class="empty-note">メモがありません。</p>'; return; }
+    listEl.innerHTML = '';
+    result.memos.forEach((memo) => listEl.appendChild(buildMemoItem(memo)));
+  } catch (err) { setMsg(msgEl, err.message, 'error'); listEl.innerHTML = ''; }
+}
+
+function buildMemoItem(memo) {
+  const item = document.createElement('div');
+  item.className = 'memo-item';
+  item.innerHTML =
+    '<div class="memo-head">' +
+      '<div class="memo-name">' + memo.fileName.replace(/\.md$/, '') + '</div>' +
+      '<button type="button" class="btn-outline-sm" data-act="view">表示</button>' +
+    '</div>' +
+    '<div class="memo-snippet">' + (memo.snippet || '') + '</div>' +
+    '<div class="memo-detail hidden"></div>';
+
+  const viewBtn = item.querySelector('[data-act="view"]');
+  const detail = item.querySelector('.memo-detail');
+
+  viewBtn.addEventListener('click', async () => {
+    if (!detail.classList.contains('hidden')) { detail.classList.add('hidden'); detail.innerHTML = ''; return; }
+    detail.classList.remove('hidden');
+    detail.innerHTML = '<p class="empty-note">読み込み中...</p>';
+    const token = localStorage.getItem('ks_token');
+    try {
+      const result = await callApi('getMemo', { token, fileId: memo.fileId });
+      if (!result.ok) { detail.innerHTML = '<div class="msg error">' + result.error + '</div>'; return; }
+      detail.innerHTML =
+        '<textarea class="memo-edit-area">' + escapeHtml(result.content) + '</textarea>' +
+        '<div class="memo-detail-actions">' +
+          '<button type="button" class="btn-outline-sm" data-act="save">保存</button>' +
+          '<button type="button" class="btn-danger-sm" data-act="delete">削除</button>' +
+        '</div>' +
+        '<div class="msg detail-msg"></div>';
+
+      detail.querySelector('[data-act="save"]').addEventListener('click', async () => {
+        const content = detail.querySelector('.memo-edit-area').value;
+        const dmsg = detail.querySelector('.detail-msg');
+        try {
+          const r = await callApi('updateMemo', { token, fileId: memo.fileId, content });
+          if (r.ok) { setMsg(dmsg, '保存しました。', 'success'); refreshMemoList(); }
+          else setMsg(dmsg, r.error, 'error');
+        } catch (e) { setMsg(dmsg, e.message, 'error'); }
       });
-      const result = await res.text();
-
-      if (result.startsWith("Success")){
-        setStatus("保管庫に保存しました ✓", "ok");
-        textEl.value = "";
-        updateCount();
-        try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-      } else {
-        setStatus(result || "保存に失敗しました", "err");
-      }
-    } catch(err){
-      setStatus("通信エラー: " + err.message, "err");
-    } finally {
-      sendBtn.disabled = false;
-      sendBtn.textContent = "保管庫へ送る";
-    }
+      detail.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+        if (!confirm(memo.fileName + ' を削除しますか？この操作は元に戻せません。')) return;
+        try {
+          const r = await callApi('deleteMemo', { token, fileId: memo.fileId });
+          if (r.ok) refreshMemoList();
+          else setMsg(detail.querySelector('.detail-msg'), r.error, 'error');
+        } catch (e) { setMsg(detail.querySelector('.detail-msg'), e.message, 'error'); }
+      });
+    } catch (err) { detail.innerHTML = '<div class="msg error">' + err.message + '</div>'; }
   });
-</script>
 
+  return item;
+}
+function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ---------- 起動時 ----------
+(function init() {
+  const token = localStorage.getItem('ks_token');
+  const nickname = localStorage.getItem('ks_nickname');
+  const email = localStorage.getItem('ks_email');
+  const today = new Date();
+  const tzOffsetMs = today.getTimezoneOffset() * 60000;
+  $('filterDate').max = new Date(today.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+  if (token && (nickname || email)) enterMainView(nickname || email);
+  else showOnly('loginView');
+  setTimeout(setupPadCanvasSize, 50);
+})();
+</script>
 </body>
 </html>
