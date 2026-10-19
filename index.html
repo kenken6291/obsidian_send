@@ -195,12 +195,8 @@
   <input type="text" id="regNickname" placeholder="表示名（未入力可）">
   <label>メールアドレス</label>
   <input type="email" id="regEmail" placeholder="you@example.com">
-  <label>パスワード（6文字以上）</label>
-  <div class="pw-field">
-    <input type="password" id="regPassword" placeholder="••••••••">
-    <button type="button" class="pw-toggle" data-target="regPassword">👁️</button>
-  </div>
-  <button class="btn-primary" id="registerBtn">登録する</button>
+  <p class="sub">登録すると、メールアドレス宛に仮パスワードが届きます。初回ログイン時に新しいパスワードを設定してください。</p>
+  <button class="btn-primary" id="registerBtn">登録して仮パスワードを受け取る</button>
   <div class="toggle-link">既にアカウントがある方は <a id="showLoginFromRegister">ログイン</a></div>
   <div id="registerMsg" class="msg"></div>
 </div>
@@ -370,16 +366,15 @@ async function callApi(action, data) {
 $('registerBtn').addEventListener('click', async () => {
   const nickname = $('regNickname').value.trim();
   const email = $('regEmail').value.trim();
-  const password = $('regPassword').value;
   const msgEl = $('registerMsg');
-  if (!email || password.length < 6) { setMsg(msgEl, 'メールアドレスと6文字以上のパスワードを入力してください。', 'error'); return; }
+  if (!email) { setMsg(msgEl, 'メールアドレスを入力してください。', 'error'); return; }
   $('registerBtn').disabled = true;
   try {
-    const result = await callApi('register', { email, password, nickname });
+    const result = await callApi('register', { email, nickname });
     if (result.ok) {
-      setMsg(msgEl, result.message, 'success');
       $('loginEmail').value = email;
       showOnly('loginView');
+      setMsg($('loginMsg'), result.message, 'success');
     } else setMsg(msgEl, result.error, 'error');
   } catch (err) { setMsg(msgEl, err.message, 'error'); }
   finally { $('registerBtn').disabled = false; }

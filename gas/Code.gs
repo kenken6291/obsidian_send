@@ -1,364 +1,524 @@
 /**
- * 健二保管庫 - Obsidian用フリーメモWebアプリ バックエンド (GAS)
+ * 健二保管庫（obsidian_send） — GAS バックエンド 完全版
  *
- * 機能:
- *  - 会員認証（登録・ログイン・パスワード忘れ→仮パスワード発行・強制再登録・ニックネーム編集）
- *  - テキスト/音声/手書き/写真からの入力を受け取り、Gemini APIで整形してObsidian用Markdownメモを生成
- *  - 指定Googleドライブフォルダに「年-月-日_時分_メモ帳.md」形式で新規ファイルを作成
- *  - 作成済みメモの一覧表示（日付指定フィルタ可）・再表示・編集・削除
+ * ■ スクリプトプロパティ（プロジェクトの設定 → スクリプト プロパティ）
+ *   GEMINI_API_KEY  : Gemini APIキー（必須）
+ *   GEMINI_MODEL    : Geminiモデル名（必須 例: gemini-2.5-flash）
+ *   MEMO_FOLDER_ID  : メモ保存先フォルダID（省略時は 10_free_memo の既定ID）
+ *   USERS_SHEET_ID  : 会員台帳スプレッドシートID（省略時は初回に自動作成して保存）
  *
- * スクリプトプロパティ:
- *   GEMINI_API_KEY : Gemini APIキー
- *   MEMO_FOLDER_ID : 保存先フォルダID（"10_free_memo"）
- *   USER_SHEET_ID  : 会員管理スプレッドシートID（未設定なら初回登録時に自動作成）
- *   PEPPER         : パスワードハッシュ用の秘密文字列（未設定なら自動生成して保存）
+ * ■ アクション（POST / body は JSON 文字列）
+ *   register, login, forgotPassword, resetPassword, updateNickname,
+ *   polishText, createMemo, listMemos, getMemo, updateMemo, deleteMemo
  */
 
-var GEMINI_MODEL = 'gemini-3.6-flash';
-var SESSION_TTL_SEC = 21600; // 6時間
-var SHEET_NAME = 'Users';
+const GAS_VERSION = '1.3.1';
+const DEFAULT_MEMO_FOLDER_ID = '1k021VxuchCB_vITpVOtSM_RARCCJ9GvO';
+const TOKEN_TTL_DAYS = 30;
+const MAX_LOGIN_FAILS = 5;
+const LOCK_MINUTES = 15;
+const TZ = 'Asia/Tokyo';
 
-// ============ エントリポイント ============
+const USER_HEADERS = [
+  'email', 'nickname', 'salt', 'passwordHash', 'requiresReset',
+  'token', 'tokenExpires', 'failCount', 'lockedUntil', 'createdAt', 'updatedAt'
+];
+
+// =====================================================================
+// エントリポイント
+// =====================================================================
+function doGet() {
+  return json_({ ok: true, app: '健二保管庫', version: GAS_VERSION });
+}
 
 function doPost(e) {
-  var result;
+  let data = {};
   try {
-    var body = JSON.parse(e.postData.contents);
-    var action = body.action;
+    data = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  } catch (err) {
+    return json_({ ok: false, error: 'リクエストの形式が正しくありません。' });
+  }
 
-    switch (action) {
-      case 'register':        result = handleRegister_(body); break;
-      case 'login':            result = handleLogin_(body); break;
-      case 'forgotPassword':   result = handleForgotPassword_(body); break;
-      case 'resetPassword':    result = handleResetPassword_(body); break;
-      case 'updateNickname':   result = handleUpdateNickname_(body); break;
-      case 'createMemo':       result = handleCreateMemo_(body); break;
-      case 'listMemos':        result = handleListMemos_(body); break;
-      case 'getMemo':          result = handleGetMemo_(body); break;
-      case 'updateMemo':       result = handleUpdateMemo_(body); break;
-      case 'deleteMemo':       result = handleDeleteMemo_(body); break;
+  try {
+    switch (data.action) {
+      // 会員
+      case 'register':       return json_(register_(data));
+      case 'login':          return json_(login_(data));
+      case 'forgotPassword': return json_(forgotPassword_(data));
+      case 'resetPassword':  return json_(withUser_(data, resetPassword_));
+      case 'updateNickname': return json_(withUser_(data, updateNickname_));
+      // メモ
+      case 'polishText':     return json_(withUser_(data, polishText_));
+      case 'createMemo':     return json_(withUser_(data, createMemo_));
+      case 'listMemos':      return json_(withUser_(data, listMemos_));
+      case 'getMemo':        return json_(withUser_(data, getMemo_));
+      case 'updateMemo':     return json_(withUser_(data, updateMemo_));
+      case 'deleteMemo':     return json_(withUser_(data, deleteMemo_));
+      case 'version':        return json_({ ok: true, version: GAS_VERSION });
       default:
-        result = { ok: false, error: '不明なアクションです: ' + action };
+        return json_({ ok: false, error: '不明なアクションです: ' + data.action });
     }
   } catch (err) {
-    result = { ok: false, error: 'サーバーエラー: ' + err.message };
+    console.error(err);
+    return json_({ ok: false, error: 'サーバーエラー: ' + (err && err.message ? err.message : err) });
   }
-  return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
 }
 
-function doGet(e) {
-  return ContentService.createTextOutput('健二保管庫 API is running.');
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// ============ 会員管理まわり ============
-
+// =====================================================================
+// 会員台帳（スプレッドシート）
+// =====================================================================
 function getUserSheet_() {
-  var props = PropertiesService.getScriptProperties();
-  var sheetId = props.getProperty('USER_SHEET_ID');
-  var ss;
-  if (sheetId) {
-    ss = SpreadsheetApp.openById(sheetId);
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty('USERS_SHEET_ID');
+  let ss;
+  if (id) {
+    ss = SpreadsheetApp.openById(id);
   } else {
-    ss = SpreadsheetApp.create('ObsidianSend_Users');
-    props.setProperty('USER_SHEET_ID', ss.getId());
+    ss = SpreadsheetApp.create('健二保管庫_会員台帳');
+    props.setProperty('USERS_SHEET_ID', ss.getId());
   }
-  var sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(['Email', 'PasswordHash', 'Salt', 'Nickname', 'IsTempPassword']);
-    var defaultSheet = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
-    if (defaultSheet && ss.getSheets().length > 1) ss.deleteSheet(defaultSheet);
+  let sh = ss.getSheetByName('users');
+  if (!sh) {
+    sh = ss.getSheets()[0];
+    sh.setName('users');
   }
-  return sheet;
-}
-
-function getPepper_() {
-  var props = PropertiesService.getScriptProperties();
-  var pepper = props.getProperty('PEPPER');
-  if (!pepper) {
-    pepper = Utilities.getUuid() + Utilities.getUuid();
-    props.setProperty('PEPPER', pepper);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 1, USER_HEADERS.length).setValues([USER_HEADERS]);
+    sh.setFrozenRows(1);
+    sh.getRange('A:A').setNumberFormat('@');
   }
-  return pepper;
+  return sh;
 }
 
-function hashPassword_(password, salt) {
-  var pepper = getPepper_();
-  var raw = Utilities.computeHmacSha256Signature(password + ':' + salt, pepper);
-  return Utilities.base64Encode(raw);
-}
-
-function findUserRowIndex_(sheet, email) {
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]).toLowerCase() === String(email).toLowerCase()) return i + 1; // 1-based row
-  }
-  return -1;
-}
-
-function handleRegister_(body) {
-  var email = (body.email || '').trim();
-  var password = body.password || '';
-  var nickname = (body.nickname || '').trim();
-  if (!email || password.length < 6) {
-    return { ok: false, error: 'メールアドレスと6文字以上のパスワードを入力してください。' };
-  }
-  var sheet = getUserSheet_();
-  if (findUserRowIndex_(sheet, email) !== -1) {
-    return { ok: false, error: 'このメールアドレスは既に登録されています。' };
-  }
-  if (!nickname) nickname = email.split('@')[0];
-  var salt = Utilities.getUuid();
-  var hash = hashPassword_(password, salt);
-  sheet.appendRow([email, hash, salt, nickname, 'FALSE']);
-  return { ok: true, message: '登録が完了しました。ログインしてください。' };
-}
-
-function handleLogin_(body) {
-  var email = (body.email || '').trim();
-  var password = body.password || '';
-  var sheet = getUserSheet_();
-  var row = findUserRowIndex_(sheet, email);
-  if (row === -1) return { ok: false, error: 'メールアドレスまたはパスワードが違います。' };
-
-  var values = sheet.getRange(row, 1, 1, 5).getValues()[0];
-  var storedHash = values[1], salt = values[2], nickname = values[3], isTemp = String(values[4]) === 'TRUE';
-  var hash = hashPassword_(password, salt);
-  if (hash !== storedHash) return { ok: false, error: 'メールアドレスまたはパスワードが違います。' };
-
-  var token = Utilities.getUuid();
-  CacheService.getScriptCache().put('session_' + token, email, SESSION_TTL_SEC);
-  return { ok: true, token: token, email: email, nickname: nickname, requiresPasswordReset: isTemp };
-}
-
-function getSessionEmail_(token) {
-  if (!token) return null;
-  var cache = CacheService.getScriptCache();
-  var email = cache.get('session_' + token);
-  if (email) cache.put('session_' + token, email, SESSION_TTL_SEC); // 延長
-  return email;
-}
-
-function handleForgotPassword_(body) {
-  var email = (body.email || '').trim();
-  var sheet = getUserSheet_();
-  var row = findUserRowIndex_(sheet, email);
-  // メールアドレスの存在有無を外部から推測させないため、常に同じ成功メッセージを返す
-  if (row !== -1) {
-    var tempPassword = Utilities.getUuid().replace(/-/g, '').substring(0, 8);
-    var salt = Utilities.getUuid();
-    var hash = hashPassword_(tempPassword, salt);
-    sheet.getRange(row, 2, 1, 3).setValues([[hash, salt, sheet.getRange(row, 4).getValue()]]);
-    sheet.getRange(row, 5).setValue('TRUE');
-    try {
-      MailApp.sendEmail(email, '【健二保管庫】仮パスワードのお知らせ',
-        '仮パスワードを発行しました。\n\n仮パスワード: ' + tempPassword +
-        '\n\nログイン後、必ず新しいパスワードを再登録してください。');
-    } catch (e) {
-      // メール送信失敗時もユーザーには成功と同じ応答を返す（仮パスワードは発行済みのため）
-    }
-  }
-  return { ok: true, message: '登録済みのメールアドレスであれば、仮パスワードを送信しました。' };
-}
-
-function handleResetPassword_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-  var newPassword = body.newPassword || '';
-  if (newPassword.length < 6) return { ok: false, error: '新しいパスワードは6文字以上にしてください。' };
-
-  var sheet = getUserSheet_();
-  var row = findUserRowIndex_(sheet, email);
-  if (row === -1) return { ok: false, error: 'ユーザーが見つかりません。' };
-  var salt = Utilities.getUuid();
-  var hash = hashPassword_(newPassword, salt);
-  sheet.getRange(row, 2, 1, 2).setValues([[hash, salt]]);
-  sheet.getRange(row, 5).setValue('FALSE');
-  return { ok: true };
-}
-
-function handleUpdateNickname_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-  var nickname = (body.nickname || '').trim();
-  if (!nickname) return { ok: false, error: 'ニックネームを入力してください。' };
-  var sheet = getUserSheet_();
-  var row = findUserRowIndex_(sheet, email);
-  if (row === -1) return { ok: false, error: 'ユーザーが見つかりません。' };
-  sheet.getRange(row, 4).setValue(nickname);
-  return { ok: true, nickname: nickname };
-}
-
-// ============ メモ本体（作成・一覧・取得・更新・削除） ============
-
-function getMemoFolder_() {
-  var folderId = PropertiesService.getScriptProperties().getProperty('MEMO_FOLDER_ID');
-  if (!folderId) throw new Error('MEMO_FOLDER_ID が設定されていません。');
-  return DriveApp.getFolderById(folderId);
-}
-
-// ファイル名: 年-月-日_時分_メモ帳 （重複時は _2, _3 ... を付与）
-function buildMemoFileName_(folder, date) {
-  var tz = Session.getScriptTimeZone();
-  var base = Utilities.formatDate(date, tz, 'yyyy-MM-dd_HHmm') + '_メモ帳';
-  var name = base;
-  var suffix = 2;
-  while (folder.getFilesByName(name + '.md').hasNext()) {
-    name = base + '_' + suffix;
-    suffix++;
-  }
-  return name + '.md';
-}
-
-function callGemini_(promptText, images) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!apiKey) throw new Error('GEMINI_API_KEY が設定されていません。');
-
-  var parts = [{ text: promptText }];
-  (images || []).forEach(function (img) {
-    parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+function readUsers_(sh) {
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const values = sh.getRange(2, 1, last - 1, USER_HEADERS.length).getValues();
+  return values.map(function (row, i) {
+    const u = { _row: i + 2 };
+    USER_HEADERS.forEach(function (h, j) { u[h] = row[j]; });
+    return u;
   });
+}
 
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + apiKey;
-  var payload = { contents: [{ parts: parts }] };
-  var res = UrlFetchApp.fetch(url, {
+function findUserBy_(sh, key, value) {
+  if (!value) return null;
+  const v = String(value);
+  const users = readUsers_(sh);
+  for (let i = 0; i < users.length; i++) {
+    if (String(users[i][key]) === v) return users[i];
+  }
+  return null;
+}
+
+function saveUser_(sh, u) {
+  u.updatedAt = now_();
+  const row = USER_HEADERS.map(function (h) { return u[h] === undefined ? '' : u[h]; });
+  sh.getRange(u._row, 1, 1, USER_HEADERS.length).setValues([row]);
+}
+
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+// トークン確認してから処理を実行
+function withUser_(data, handler) {
+  const sh = getUserSheet_();
+  const user = findUserBy_(sh, 'token', data.token);
+  if (!user || !user.tokenExpires || new Date(user.tokenExpires).getTime() < Date.now()) {
+    return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
+  }
+  return handler(data, user, sh);
+}
+
+// =====================================================================
+// 会員機能
+// =====================================================================
+function register_(data) {
+  const email = normalizeEmail_(data.email);
+  const nickname = String(data.nickname || '').trim().slice(0, 30);
+  if (!isValidEmail_(email)) return { ok: false, error: 'メールアドレスの形式が正しくありません。' };
+
+  return withLock_(function () {
+    const sh = getUserSheet_();
+    if (findUserBy_(sh, 'email', email)) {
+      return { ok: false, error: 'このメールアドレスは既に登録されています。パスワードがわからない場合は「パスワードをお忘れの方」から仮パスワードを受け取ってください。' };
+    }
+    const temp = makeTempPassword_();
+    const salt = Utilities.getUuid();
+    const row = {
+      email: email, nickname: nickname || email.split('@')[0], salt: salt,
+      passwordHash: hash_(temp, salt), requiresReset: true,
+      token: '', tokenExpires: '', failCount: 0, lockedUntil: '',
+      createdAt: now_(), updatedAt: now_()
+    };
+
+    // 先にメール送信（失敗したら登録しない）
+    const mailErr = sendTempPasswordMail_(email, row.nickname, temp, '会員登録ありがとうございます。');
+    if (mailErr) return { ok: false, error: mailErr };
+
+    sh.appendRow(USER_HEADERS.map(function (h) { return row[h]; }));
+    return { ok: true, message: email + ' 宛に仮パスワードを送信しました。メールの仮パスワードでログインしてください（届かない場合は迷惑メールフォルダもご確認ください）。' };
+  });
+}
+
+function login_(data) {
+  const email = normalizeEmail_(data.email);
+  const password = String(data.password || '');
+  if (!email || !password) return { ok: false, error: 'メールアドレスとパスワードを入力してください。' };
+
+  return withLock_(function () {
+    const sh = getUserSheet_();
+    const u = findUserBy_(sh, 'email', email);
+    if (!u) return { ok: false, error: 'メールアドレスまたはパスワードが違います。' };
+
+    if (u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now()) {
+      return { ok: false, error: 'ログインの失敗が続いたため、しばらくロックしています。' + LOCK_MINUTES + '分ほどおいて再度お試しください。' };
+    }
+
+    if (hash_(password, u.salt) !== String(u.passwordHash)) {
+      u.failCount = Number(u.failCount || 0) + 1;
+      if (u.failCount >= MAX_LOGIN_FAILS) {
+        u.lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60000).toISOString();
+        u.failCount = 0;
+      }
+      saveUser_(sh, u);
+      return { ok: false, error: 'メールアドレスまたはパスワードが違います。' };
+    }
+
+    u.failCount = 0;
+    u.lockedUntil = '';
+    u.token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+    u.tokenExpires = new Date(Date.now() + TOKEN_TTL_DAYS * 86400000).toISOString();
+    saveUser_(sh, u);
+    return {
+      ok: true, token: u.token, email: u.email, nickname: u.nickname,
+      requiresPasswordReset: u.requiresReset === true || String(u.requiresReset).toUpperCase() === 'TRUE'
+    };
+  });
+}
+
+function forgotPassword_(data) {
+  const email = normalizeEmail_(data.email);
+  if (!isValidEmail_(email)) return { ok: false, error: 'メールアドレスの形式が正しくありません。' };
+
+  return withLock_(function () {
+    const sh = getUserSheet_();
+    const u = findUserBy_(sh, 'email', email);
+    if (!u) return { ok: false, error: 'このメールアドレスは登録されていません。会員登録をしてください。' };
+
+    const temp = makeTempPassword_();
+    const mailErr = sendTempPasswordMail_(email, u.nickname, temp, '仮パスワードを再発行しました。');
+    if (mailErr) return { ok: false, error: mailErr };
+
+    // メール送信に成功してからパスワードを置き換える
+    u.salt = Utilities.getUuid();
+    u.passwordHash = hash_(temp, u.salt);
+    u.requiresReset = true;
+    u.token = '';
+    u.tokenExpires = '';
+    u.failCount = 0;
+    u.lockedUntil = '';
+    saveUser_(sh, u);
+    return { ok: true, message: email + ' 宛に仮パスワードを送信しました。メールをご確認ください（届かない場合は迷惑メールフォルダもご確認ください）。' };
+  });
+}
+
+// 仮パスワードのメール送信。成功時は null、失敗時はエラーメッセージを返す
+function sendTempPasswordMail_(email, nickname, temp, lead) {
+  try {
+    if (MailApp.getRemainingDailyQuota() < 1) {
+      return '本日のメール送信上限に達しました。明日もう一度お試しください。';
+    }
+    MailApp.sendEmail({
+      to: email,
+      subject: '【健二保管庫】仮パスワードのお知らせ',
+      name: '健二保管庫',
+      body: [
+        (nickname || '') + ' 様',
+        '',
+        lead,
+        '',
+        '仮パスワード： ' + temp,
+        '',
+        '下のページからログインし、新しいパスワードを設定してください。',
+        'https://kenken6291.github.io/obsidian_send/',
+        '',
+        '※ このメールに心当たりがない場合は破棄してください。'
+      ].join('\n')
+    });
+    return null;
+  } catch (err) {
+    console.error(err);
+    return 'メールを送信できませんでした: ' + (err && err.message ? err.message : err);
+  }
+}
+
+function resetPassword_(data, user, sh) {
+  const newPassword = String(data.newPassword || '');
+  if (newPassword.length < 6) return { ok: false, error: '新しいパスワードは6文字以上にしてください。' };
+  return withLock_(function () {
+    const u = findUserBy_(sh, 'email', user.email);
+    u.salt = Utilities.getUuid();
+    u.passwordHash = hash_(newPassword, u.salt);
+    u.requiresReset = false;
+    saveUser_(sh, u);
+    return { ok: true };
+  });
+}
+
+function updateNickname_(data, user, sh) {
+  const nickname = String(data.nickname || '').trim().slice(0, 30);
+  if (!nickname) return { ok: false, error: 'ニックネームを入力してください。' };
+  return withLock_(function () {
+    const u = findUserBy_(sh, 'email', user.email);
+    u.nickname = nickname;
+    saveUser_(sh, u);
+    return { ok: true, nickname: nickname };
+  });
+}
+
+// =====================================================================
+// Gemini
+// =====================================================================
+function getGeminiConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const apiKey = props.getProperty('GEMINI_API_KEY');
+  const model = String(props.getProperty('GEMINI_MODEL') || '').trim();
+  if (!apiKey) throw new Error('Gemini APIキーが未設定です（スクリプトプロパティ GEMINI_API_KEY）。');
+  if (!model) throw new Error('Geminiモデルが未設定です（スクリプトプロパティ GEMINI_MODEL）。');
+  return { apiKey: apiKey, model: model };
+}
+
+function callGemini_(parts, temperature) {
+  const cfg = getGeminiConfig_();
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(cfg.model) + ':generateContent';
+  const res = UrlFetchApp.fetch(url, {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(payload),
+    headers: { 'x-goog-api-key': cfg.apiKey },
+    payload: JSON.stringify({
+      contents: [{ role: 'user', parts: parts }],
+      generationConfig: { temperature: temperature === undefined ? 0.3 : temperature }
+    }),
     muteHttpExceptions: true
   });
-  var json = JSON.parse(res.getContentText());
-  if (json.error) throw new Error('Gemini APIエラー: ' + json.error.message);
-  var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
-      json.candidates[0].content.parts && json.candidates[0].content.parts[0] &&
-      json.candidates[0].content.parts[0].text;
-  if (!text) throw new Error('Geminiから有効な応答がありませんでした。');
-  return text.trim();
+  const code = res.getResponseCode();
+  if (code !== 200) {
+    let detail = '';
+    try { detail = JSON.parse(res.getContentText()).error.message || ''; } catch (e) {}
+    throw new Error('Gemini APIエラー (' + code + ', ' + cfg.model + ')' + (detail ? ': ' + detail : ''));
+  }
+  const body = JSON.parse(res.getContentText());
+  const out = ((((body.candidates || [])[0] || {}).content || {}).parts || [])
+    .map(function (p) { return p.text || ''; }).join('').trim();
+  if (!out) throw new Error('Geminiから結果が返りませんでした。');
+  return out;
 }
 
-function handleCreateMemo_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
+function stripCodeFence_(s) {
+  return String(s).replace(/^```[a-zA-Z]*\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+}
 
-  var text = (body.text || '').trim();
-  var images = body.images || []; // [{mimeType, data(base64)}]
-  if (!text && images.length === 0) {
-    return { ok: false, error: '内容を入力するか、手書き・写真を追加してください。' };
-  }
+// 音声認識テキストを整える（保存はしない）
+function polishText_(data) {
+  const text = String(data.text || '').trim();
+  if (!text) return { ok: false, error: '整える文章がありません。' };
+  if (text.length > 20000) return { ok: false, error: '文章が長すぎます。' };
 
-  var prompt =
-    '以下はObsidianに保存するフリーメモの元になる入力です。テキストと（あれば）画像の内容をもとに、' +
-    '読みやすいObsidian用Markdownメモを1つ作成してください。\n' +
-    '- 画像に手書き文字や印字された文字が写っている場合は、それを読み取ってメモ本文に含めてください。\n' +
-    '- 写真（風景・物・人など）の場合は、内容を簡潔に描写して本文に含めてください。\n' +
-    '- 内容から適切なタイトルを先頭に「# 」見出しで付けてください。\n' +
-    '- 内容に応じたタグを3つ程度、本文末尾に「#タグ名」の形式で付けてください。\n' +
-    '- 前置きや説明文は不要です。メモ本文のみをMarkdownで出力してください。\n\n' +
-    '--- 入力テキスト ---\n' + (text || '（テキスト入力なし。画像を参照）');
+  const prompt = [
+    'あなたは音声入力メモの清書係です。以下は日本語の音声認識結果です。',
+    '次のルールで読みやすく整えてください。',
+    '・句読点を補い、誤変換と思われる語を文脈から正しく直す',
+    '・「えー」「あの」「えっと」などの言いよどみ、言い直し、重複を取り除く',
+    '・話題が変わる所や長い間（改行）の所で段落を分ける',
+    '・内容の追加・要約・意見は禁止。話した内容と意味はそのまま残す',
+    '・見出し、箇条書き、前置き、説明文は付けず、整えた本文だけを出力する',
+    '',
+    '--- 音声認識結果 ---',
+    text
+  ].join('\n');
 
-  var formatted;
+  const out = stripCodeFence_(callGemini_([{ text: prompt }], 0.2));
+  return { ok: true, text: out };
+}
+
+// =====================================================================
+// メモ
+// =====================================================================
+function getMemoFolder_() {
+  const id = PropertiesService.getScriptProperties().getProperty('MEMO_FOLDER_ID') || DEFAULT_MEMO_FOLDER_ID;
+  return DriveApp.getFolderById(id);
+}
+
+function createMemo_(data, user) {
+  const text = String(data.text || '').trim();
+  const images = Array.isArray(data.images) ? data.images.slice(0, 10) : [];
+  if (!text && images.length === 0) return { ok: false, error: '内容を入力するか、手書き・写真を追加してください。' };
+
+  const now = new Date();
+  const dateStr = Utilities.formatDate(now, TZ, 'yyyy-MM-dd');
+  const timeStr = Utilities.formatDate(now, TZ, 'HH:mm');
+
+  const prompt = [
+    'あなたはObsidian用のメモ整理係です。以下の入力（文章・手書き画像・写真）から、Obsidian用のMarkdownメモを1つ作成してください。',
+    '',
+    '出力形式（この形式のみを出力。コードブロックや説明は付けない）：',
+    '---',
+    'created: ' + dateStr + ' ' + timeStr,
+    'tags: [内容に合うタグを3〜6個。日本語可・スペースなし]',
+    'source: 健二保管庫',
+    '---',
+    '# 内容を表す短いタイトル',
+    '',
+    '本文',
+    '',
+    'ルール：',
+    '・本文は入力の内容と意味をそのまま残し、読みやすく整える（要約・創作・意見の追加はしない）',
+    '・文章の入力は利用者が確認済みの文章なので、言い回しは大きく変えない',
+    '・手書き画像は文字を読み取って本文に含める。写真は写っている内容を簡潔に書き添える',
+    '・関連しそうな語句は [[ ]] で囲んで内部リンクにしてよい（多用しない）',
+    '',
+    '--- 文章 ---',
+    text || '（なし）'
+  ].join('\n');
+
+  const parts = [{ text: prompt }];
+  images.forEach(function (img) {
+    if (img && img.data) parts.push({ inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.data } });
+  });
+
+  let content;
   try {
-    formatted = callGemini_(prompt, images);
+    content = stripCodeFence_(callGemini_(parts, 0.3));
   } catch (err) {
-    // Gemini整形に失敗した場合も、入力内容は失わずそのまま保存する
-    formatted = '# メモ\n\n' + (text || '（画像のみの入力・整形失敗のため画像内容は含まれていません）') +
-      '\n\n> 整形失敗: ' + err.message;
+    return { ok: false, error: err.message };
   }
 
-  var now = new Date();
-  var folder = getMemoFolder_();
-  var fileName = buildMemoFileName_(folder, now);
-  var tz = Session.getScriptTimeZone();
-  var frontMatter = '---\ncreated: ' + Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm') + '\n---\n\n';
-  var content = frontMatter + formatted;
+  const folder = getMemoFolder_();
+  const base = dateStr + '_' + Utilities.formatDate(now, TZ, 'HHmm') + '_メモ帳';
+  let fileName = base + '.md';
+  let n = 2;
+  while (folder.getFilesByName(fileName).hasNext()) { fileName = base + '_' + n + '.md'; n++; }
 
-  var file = folder.createFile(fileName, content, MimeType.PLAIN_TEXT);
-  return { ok: true, fileId: file.getId(), fileName: fileName, content: content };
+  folder.createFile(fileName, content, 'text/markdown');
+  return { ok: true, fileName: fileName, content: content };
 }
 
-function getMemoFileOrThrow_(fileId, folder) {
-  var file = DriveApp.getFileById(fileId);
-  var parents = file.getParents();
-  var belongsToFolder = false;
-  while (parents.hasNext()) {
-    if (parents.next().getId() === folder.getId()) { belongsToFolder = true; break; }
-  }
-  if (!belongsToFolder) throw new Error('指定されたメモが見つかりません。');
-  return file;
-}
-
-function handleListMemos_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-
-  var dateFilter = (body.date || '').trim(); // 'yyyy-MM-dd' 形式、空なら全件
-  var folder = getMemoFolder_();
-  var it = folder.getFilesByType(MimeType.PLAIN_TEXT);
-  var memos = [];
+function listMemos_(data) {
+  const date = String(data.date || '').trim(); // yyyy-MM-dd
+  const folder = getMemoFolder_();
+  const it = folder.getFiles();
+  const files = [];
   while (it.hasNext()) {
-    var f = it.next();
-    var name = f.getName();
-    if (!/^\d{4}-\d{2}-\d{2}_\d{4}_メモ帳/.test(name)) continue;
-    if (dateFilter && name.indexOf(dateFilter + '_') !== 0) continue;
-    var snippet = '';
-    try {
-      var raw = f.getBlob().getDataAsString('UTF-8');
-      var body2 = raw.replace(/^---[\s\S]*?---\n*/, '');
-      snippet = body2.replace(/\n/g, ' ').substring(0, 60);
-    } catch (e) {}
-    memos.push({
-      fileId: f.getId(),
-      fileName: name,
-      updatedAt: f.getLastUpdated().toISOString(),
-      snippet: snippet
-    });
+    const f = it.next();
+    const name = f.getName();
+    if (!/\.md$/i.test(name)) continue;
+    if (date && name.indexOf(date) !== 0) continue;
+    files.push(f);
   }
-  memos.sort(function (a, b) { return a.fileName < b.fileName ? 1 : -1; });
+  files.sort(function (a, b) {
+    const an = a.getName(), bn = b.getName();
+    if (an !== bn) return an < bn ? 1 : -1;
+    return b.getLastUpdated() - a.getLastUpdated();
+  });
+
+  const memos = files.slice(0, 100).map(function (f, i) {
+    let snippet = '';
+    if (i < 50) {
+      try { snippet = makeSnippet_(f.getBlob().getDataAsString('UTF-8')); } catch (e) {}
+    }
+    return { fileId: f.getId(), fileName: f.getName(), snippet: escapeHtml_(snippet) };
+  });
   return { ok: true, memos: memos };
 }
 
-function handleGetMemo_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-  try {
-    var folder = getMemoFolder_();
-    var file = getMemoFileOrThrow_(body.fileId, folder);
-    var content = file.getBlob().getDataAsString('UTF-8');
-    return { ok: true, fileName: file.getName(), content: content };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
+function getMemo_(data) {
+  const f = getMemoFile_(data.fileId);
+  if (!f) return { ok: false, error: 'メモが見つかりません。' };
+  return { ok: true, fileName: f.getName(), content: f.getBlob().getDataAsString('UTF-8') };
 }
 
-function handleUpdateMemo_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-  try {
-    var folder = getMemoFolder_();
-    var file = getMemoFileOrThrow_(body.fileId, folder);
-    file.setContent(body.content || '');
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
+function updateMemo_(data) {
+  const f = getMemoFile_(data.fileId);
+  if (!f) return { ok: false, error: 'メモが見つかりません。' };
+  f.setContent(String(data.content || ''));
+  return { ok: true };
 }
 
-function handleDeleteMemo_(body) {
-  var email = getSessionEmail_(body.token);
-  if (!email) return { ok: false, error: 'セッションが切れています。再ログインしてください。' };
-  try {
-    var folder = getMemoFolder_();
-    var file = getMemoFileOrThrow_(body.fileId, folder);
-    file.setTrashed(true);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
+function deleteMemo_(data) {
+  const f = getMemoFile_(data.fileId);
+  if (!f) return { ok: false, error: 'メモが見つかりません。' };
+  f.setTrashed(true); // ゴミ箱へ移動（30日以内なら復元可）
+  return { ok: true };
 }
 
-// ============ 動作確認用テスト関数（GASエディタから手動実行） ============
-function testGemini_() {
-  var result = callGemini_('こんにちは、今日は良い天気です。買い物リスト：牛乳、卵、パン。', []);
-  Logger.log(result);
+// 保存フォルダ内のファイルだけ操作できるようにする
+function getMemoFile_(fileId) {
+  if (!fileId) return null;
+  let f;
+  try { f = DriveApp.getFileById(String(fileId)); } catch (e) { return null; }
+  if (f.isTrashed()) return null;
+  const folderId = getMemoFolder_().getId();
+  const parents = f.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folderId) return f;
+  }
+  return null;
+}
+
+function makeSnippet_(md) {
+  const body = String(md).replace(/^---[\s\S]*?\n---\s*\n?/, '');
+  const line = body.split('\n')
+    .map(function (s) { return s.replace(/^#+\s*/, '').trim(); })
+    .filter(function (s) { return s; })
+    .join(' ');
+  return line.length > 80 ? line.slice(0, 80) + '…' : line;
+}
+
+// =====================================================================
+// ユーティリティ
+// =====================================================================
+function hash_(password, salt) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(salt) + ':' + String(password), Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+}
+
+function makeTempPassword_() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 10; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+  return s;
+}
+
+function normalizeEmail_(email) { return String(email || '').trim().toLowerCase(); }
+function isValidEmail_(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
+function now_() { return new Date().toISOString(); }
+function escapeHtml_(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// =====================================================================
+// 初回確認用（エディタから手動実行）
+// =====================================================================
+function setupCheck() {
+  const sh = getUserSheet_();
+  const folder = getMemoFolder_();
+  const cfg = getGeminiConfig_();
+  console.log('会員台帳: ' + sh.getParent().getUrl());
+  console.log('保存フォルダ: ' + folder.getName());
+  console.log('Geminiモデル: ' + cfg.model);
+  console.log('バージョン: ' + GAS_VERSION);
+  console.log('メール残り送信可能数: ' + MailApp.getRemainingDailyQuota());
+}
+
+// メール送信テスト（エディタから手動実行。自分宛に届けばOK）
+function testMail() {
+  const me = Session.getEffectiveUser().getEmail();
+  const err = sendTempPasswordMail_(me, 'テスト', 'TEST1234', 'これはメール送信のテストです。');
+  console.log(err ? 'NG: ' + err : 'OK: ' + me + ' に送信しました');
 }
