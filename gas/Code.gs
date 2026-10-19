@@ -4,7 +4,8 @@
  * ■ スクリプトプロパティ（プロジェクトの設定 → スクリプト プロパティ）
  *   GEMINI_API_KEY  : Gemini APIキー（必須）
  *   GEMINI_MODEL    : Geminiモデル名（必須 例: gemini-2.5-flash）
- *   MEMO_FOLDER_ID  : メモ保存先フォルダID（省略時は 10_free_memo の既定ID）
+ *   MEMO_FOLDER_PATH: メモ保存先（マイドライブからのパス。省略時は 健二保管庫/10_free_memo）
+ *                     保管庫の直下に保存したい場合は「健二保管庫」とだけ設定
  *   USERS_SHEET_ID  : 会員台帳スプレッドシートID（省略時は初回に自動作成して保存）
  *
  * ■ アクション（POST / body は JSON 文字列）
@@ -12,8 +13,9 @@
  *   polishText, createMemo, listMemos, getMemo, updateMemo, deleteMemo
  */
 
-const GAS_VERSION = '1.3.1';
-const DEFAULT_MEMO_FOLDER_ID = '1k021VxuchCB_vITpVOtSM_RARCCJ9GvO';
+const GAS_VERSION = '1.3.2';
+// 保存先：マイドライブからのパス（G:\マイドライブ\健二保管庫\10_free_memo）
+const DEFAULT_MEMO_FOLDER_PATH = '健二保管庫/10_free_memo';
 const TOKEN_TTL_DAYS = 30;
 const MAX_LOGIN_FAILS = 5;
 const LOCK_MINUTES = 15;
@@ -352,9 +354,35 @@ function polishText_(data) {
 // =====================================================================
 // メモ
 // =====================================================================
+function getMemoFolderPath_() {
+  const p = PropertiesService.getScriptProperties().getProperty('MEMO_FOLDER_PATH') || DEFAULT_MEMO_FOLDER_PATH;
+  return String(p).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').trim();
+}
+
+// マイドライブからパスをたどってフォルダを取得（無いフォルダは作成）。IDはキャッシュする
 function getMemoFolder_() {
-  const id = PropertiesService.getScriptProperties().getProperty('MEMO_FOLDER_ID') || DEFAULT_MEMO_FOLDER_ID;
-  return DriveApp.getFolderById(id);
+  const path = getMemoFolderPath_();
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'memoFolder:' + path;
+  const cachedId = cache.get(cacheKey);
+  if (cachedId) {
+    try {
+      const f = DriveApp.getFolderById(cachedId);
+      if (!f.isTrashed()) return f;
+    } catch (e) {}
+  }
+  let folder = DriveApp.getRootFolder();
+  path.split('/').filter(function (s) { return s; }).forEach(function (name) {
+    let next = null;
+    const it = folder.getFoldersByName(name);
+    while (it.hasNext()) {
+      const c = it.next();
+      if (!c.isTrashed()) { next = c; break; }
+    }
+    folder = next || folder.createFolder(name);
+  });
+  cache.put(cacheKey, folder.getId(), 21600);
+  return folder;
 }
 
 function createMemo_(data, user) {
@@ -510,7 +538,7 @@ function setupCheck() {
   const folder = getMemoFolder_();
   const cfg = getGeminiConfig_();
   console.log('会員台帳: ' + sh.getParent().getUrl());
-  console.log('保存フォルダ: ' + folder.getName());
+  console.log('保存フォルダ: マイドライブ/' + getMemoFolderPath_() + '（' + folder.getUrl() + '）');
   console.log('Geminiモデル: ' + cfg.model);
   console.log('バージョン: ' + GAS_VERSION);
   console.log('メール残り送信可能数: ' + MailApp.getRemainingDailyQuota());
