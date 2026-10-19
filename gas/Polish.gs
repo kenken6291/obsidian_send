@@ -7,9 +7,11 @@
  * （if文方式なら： if (data.action === 'polishText') return polishText_(data); ）
  */
 
-// Code.gs と同じものに合わせてください
-const POLISH_GEMINI_MODEL = 'gemini-2.5-flash';
+// スクリプトプロパティのキー名（Code.gs と同じものに合わせてください）
+//   GEMINI_API_KEY : Gemini APIキー
+//   GEMINI_MODEL   : 使用するモデル名（例: gemini-2.5-flash）
 const POLISH_KEY_PROP = 'GEMINI_API_KEY';
+const POLISH_MODEL_PROP = 'GEMINI_MODEL';
 
 function polishText_(data) {
   try {
@@ -22,8 +24,11 @@ function polishText_(data) {
     if (!text) return polishJson_({ ok: false, error: '整える文章がありません。' });
     if (text.length > 20000) return polishJson_({ ok: false, error: '文章が長すぎます。' });
 
-    const apiKey = PropertiesService.getScriptProperties().getProperty(POLISH_KEY_PROP);
-    if (!apiKey) return polishJson_({ ok: false, error: 'Gemini APIキーが未設定です。' });
+    const props = PropertiesService.getScriptProperties();
+    const apiKey = props.getProperty(POLISH_KEY_PROP);
+    if (!apiKey) return polishJson_({ ok: false, error: 'Gemini APIキーが未設定です（スクリプトプロパティ ' + POLISH_KEY_PROP + '）。' });
+    const model = String(props.getProperty(POLISH_MODEL_PROP) || '').trim();
+    if (!model) return polishJson_({ ok: false, error: 'Geminiモデルが未設定です（スクリプトプロパティ ' + POLISH_MODEL_PROP + '）。' });
 
     const prompt = [
       'あなたは音声入力メモの清書係です。以下は日本語の音声認識結果です。',
@@ -38,7 +43,7 @@ function polishText_(data) {
       text
     ].join('\n');
 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + POLISH_GEMINI_MODEL + ':generateContent';
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
     const res = UrlFetchApp.fetch(url, {
       method: 'post',
       contentType: 'application/json',
@@ -51,7 +56,9 @@ function polishText_(data) {
     });
 
     if (res.getResponseCode() !== 200) {
-      return polishJson_({ ok: false, error: 'Gemini APIエラー (' + res.getResponseCode() + ')' });
+      let detail = '';
+      try { detail = JSON.parse(res.getContentText()).error.message || ''; } catch (e) {}
+      return polishJson_({ ok: false, error: 'Gemini APIエラー (' + res.getResponseCode() + ', ' + model + ')' + (detail ? ': ' + detail : '') });
     }
     const json = JSON.parse(res.getContentText());
     const parts = (((json.candidates || [])[0] || {}).content || {}).parts || [];
