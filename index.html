@@ -37,6 +37,8 @@
   .mark svg{ flex:none; }
   h1{ font-size: 17px; font-weight: 600; letter-spacing: 0.02em; margin:0; }
   .sub{ margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); }
+  .app-version{ text-align:center; font-size:11px; color:var(--ink-dim); padding:18px 16px 10px; border-top:1px solid var(--line); margin:24px auto 0; max-width:480px; width:100%; letter-spacing:.03em; }
+  .app-version b{ color:var(--accent); font-weight:600; }
   h2{ font-size: 14px; margin: 22px 0 8px; color: var(--ink); }
 
   label{ display:block; font-size: 12.5px; color: var(--ink-dim); margin: 12px 0 5px; }
@@ -80,6 +82,11 @@
     background: var(--panel2); color: var(--ink); border:1px solid var(--line);
     display:flex; align-items:center; justify-content:center; gap:8px; font-size:14.5px; font-weight:600;
   }
+  .voice-status{ font-size:12px; color:var(--ink-dim); margin:6px 0 2px; min-height:16px; }
+  .voice-status.listening{ color:var(--good); }
+  .polish-actions{ display:flex; gap:8px; margin-top:8px; }
+  .polish-actions button{ flex:1; }
+  .polish-actions button:disabled{ opacity:.45; }
   .btn-mic.recording{ background: var(--bad); color:#100e18; animation: pulse 1.2s infinite; }
   @keyframes pulse{ 0%{opacity:1;} 50%{opacity:.6;} 100%{opacity:1;} }
 
@@ -274,8 +281,13 @@
 
     <div id="textTab" class="tab-panel active">
       <button class="btn-mic" id="micBtn">🎙️ 音声入力を開始</button>
-      <label>内容（音声認識の結果を修正できます）</label>
-      <textarea id="noteText" placeholder="思いついたことをそのまま入力・発話してください"></textarea>
+      <div class="voice-status" id="voiceStatus"></div>
+      <label>内容（音声認識・Gemini整形の結果を修正できます）</label>
+      <textarea id="noteText" placeholder="思いついたことをそのまま入力・発話してください。話の途中で間があいても、停止ボタンを押すまで聞き続けます"></textarea>
+      <div class="polish-actions">
+        <button type="button" class="btn-outline-sm" id="polishBtn">✨ Geminiで整える</button>
+        <button type="button" class="btn-outline-sm" id="undoPolishBtn" disabled>↩ 整える前に戻す</button>
+      </div>
     </div>
 
     <div id="handTab" class="tab-panel">
@@ -314,9 +326,11 @@
 
 </div>
 
+<footer class="app-version" id="appVersion"></footer>
+<script src="config.js"></script>
 <script>
-// GASをウェブアプリとして公開したときのURLに置き換えてください
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwf9ROswJQ3oawIBtCWJc71CKbgJE1bZ04uDe85lCLVzR40x8xz4Lk4d15FVL-PuFel/exec';
+// GAS の URL は config.js で設定します
+const GAS_API_URL = (window.APP_CONFIG && APP_CONFIG.GAS_API_URL) || '';
 
 const $ = (id) => document.getElementById(id);
 
@@ -342,6 +356,7 @@ $('showForgot').addEventListener('click', () => showOnly('forgotView'));
 $('backToLoginFromForgot').addEventListener('click', () => showOnly('loginView'));
 
 async function callApi(action, data) {
+  if (!GAS_API_URL) throw new Error('config.js の GAS_API_URL が設定されていません。');
   const res = await fetch(GAS_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -503,31 +518,168 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
   });
 });
 
-// ---------- 音声入力 ----------
+// ---------- 音声入力（話の間を待つ） ----------
+// ・無音（no-speech）やブラウザ側の自動終了では止めず、停止ボタンを押すまで自動で再開し続ける
+// ・停止したら、認識結果を Gemini で整えて内容欄に反映（整えた結果がそのまま記録される）
 let recognition = null, isRecording = false;
+let voiceBase = '';        // 認識開始前（＋確定済み）のテキスト
+let sessionFinal = '';     // 現在の認識セッションで確定した文字
+let lastFinalAt = 0;       // 最後に確定した時刻（間の検出用）
+let restartTimer = null, restartFails = 0;
+let spokeThisRun = false;  // 今回の録音で何か話したか
+let preRecordText = '';    // 録音開始前の内容
+let beforePolishText = null;
+const PAUSE_BREAK_MS = 2500; // これ以上の間があいたら改行を入れる
+
+function setVoiceStatus(text, listening) {
+  const el = $('voiceStatus');
+  el.textContent = text || '';
+  el.className = 'voice-status' + (listening ? ' listening' : '');
+}
+
 function setupSpeechRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { $('micBtn').disabled = true; $('micBtn').textContent = '🎙️ このブラウザは音声入力に対応していません'; return; }
   recognition = new SpeechRecognition();
   recognition.lang = 'ja-JP'; recognition.interimResults = true; recognition.continuous = true;
-  let baseText = '';
-  recognition.onstart = () => { baseText = $('noteText').value; if (baseText && !baseText.endsWith(' ') && !baseText.endsWith('\n')) baseText += ' '; };
-  recognition.onresult = (event) => {
-    let interim = '', final = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const t = event.results[i][0].transcript;
-      if (event.results[i].isFinal) final += t; else interim += t;
-    }
-    if (final) baseText += final;
-    $('noteText').value = baseText + interim;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    restartFails = 0;
+    sessionFinal = '';
+    voiceBase = $('noteText').value; // 手で修正した内容も引き継ぐ
+    setVoiceStatus('🟢 聞き取り中… 間があいても大丈夫です。話し終えたら停止を押してください', true);
   };
-  recognition.onerror = (event) => { setMsg($('postMsg'), '音声認識エラー: ' + event.error, 'error'); stopRecording(); };
-  recognition.onend = () => { if (isRecording) { try { recognition.start(); } catch (e) { stopRecording(); } } };
+
+  recognition.onresult = (event) => {
+    let finalAll = '', interim = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalAll += t; else interim += t;
+    }
+    if (finalAll.length > sessionFinal.length) {
+      const now = Date.now();
+      const added = finalAll.slice(sessionFinal.length);
+      // 前回の確定から長い間があれば区切りを入れる
+      if (lastFinalAt && now - lastFinalAt > PAUSE_BREAK_MS) {
+        const cur = voiceBase + sessionFinal;
+        if (cur && !/\n$/.test(cur)) voiceBase += '\n';
+      } else {
+        const cur = voiceBase + sessionFinal;
+        if (cur && !/[\s\n]$/.test(cur) && added) voiceBase += ' ';
+      }
+      sessionFinal = finalAll;
+      lastFinalAt = now;
+      spokeThisRun = true;
+    }
+    if (interim) spokeThisRun = true;
+    $('noteText').value = voiceBase + sessionFinal + interim;
+    const ta = $('noteText'); ta.scrollTop = ta.scrollHeight;
+  };
+
+  recognition.onerror = (event) => {
+    // 無音・中断は「間」とみなして継続（onend で再開）
+    if (event.error === 'no-speech' || event.error === 'aborted') {
+      if (isRecording) setVoiceStatus('🟡 待機中… 続きをどうぞ', true);
+      return;
+    }
+    if (event.error === 'network') { restartFails++; return; } // 一時的な通信断は再試行
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      setMsg($('postMsg'), 'マイクの使用が許可されていません。ブラウザの設定を確認してください。', 'error');
+    } else if (event.error === 'audio-capture') {
+      setMsg($('postMsg'), 'マイクが見つかりません。', 'error');
+    } else {
+      setMsg($('postMsg'), '音声認識エラー: ' + event.error, 'error');
+    }
+    stopRecording(false);
+  };
+
+  recognition.onend = () => {
+    // 確定分を本文に取り込む（未確定のまま終わった分も残す）
+    voiceBase = $('noteText').value;
+    sessionFinal = '';
+    if (!isRecording) return;
+    if (restartFails >= 5) {
+      setMsg($('postMsg'), '音声認識の再接続に失敗しました。もう一度開始してください。', 'error');
+      stopRecording(false);
+      return;
+    }
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => {
+      if (!isRecording) return;
+      try { recognition.start(); }
+      catch (e) { restartFails++; recognition.onend(); }
+    }, 250 + restartFails * 500);
+  };
 }
 setupSpeechRecognition();
-function startRecording() { if (!recognition) return; isRecording = true; recognition.start(); $('micBtn').textContent = '⏹️ 音声入力を停止'; $('micBtn').classList.add('recording'); }
-function stopRecording() { isRecording = false; if (recognition) recognition.stop(); $('micBtn').textContent = '🎙️ 音声入力を開始'; $('micBtn').classList.remove('recording'); }
-$('micBtn').addEventListener('click', () => { if (isRecording) stopRecording(); else startRecording(); });
+
+function startRecording() {
+  if (!recognition) return;
+  isRecording = true; spokeThisRun = false; restartFails = 0; lastFinalAt = 0;
+  preRecordText = $('noteText').value;
+  try { recognition.start(); } catch (e) {}
+  $('micBtn').textContent = '⏹️ 音声入力を停止';
+  $('micBtn').classList.add('recording');
+}
+
+// autoPolish: 停止後に Gemini で整えるか
+function stopRecording(autoPolish) {
+  const wasRecording = isRecording;
+  isRecording = false;
+  clearTimeout(restartTimer);
+  if (recognition) { try { recognition.stop(); } catch (e) {} }
+  $('micBtn').textContent = '🎙️ 音声入力を開始';
+  $('micBtn').classList.remove('recording');
+  setVoiceStatus('');
+  if (wasRecording && autoPolish && spokeThisRun) {
+    // stop() 後に届く最後の確定結果を待ってから整形
+    setTimeout(() => polishNoteText(), 700);
+  }
+}
+$('micBtn').addEventListener('click', () => { if (isRecording) stopRecording(true); else startRecording(); });
+
+// ---------- Gemini で整える ----------
+async function polishNoteText() {
+  const text = $('noteText').value.trim();
+  const msgEl = $('postMsg');
+  const token = localStorage.getItem('ks_token');
+  if (!text) return false;
+  if (!token) { setMsg(msgEl, 'セッションが切れています。再ログインしてください。', 'error'); return false; }
+  const btn = $('polishBtn');
+  btn.disabled = true; $('submitBtn').disabled = true; $('micBtn').disabled = true;
+  btn.innerHTML = '<span class="loading"></span>整えています...';
+  setVoiceStatus('✨ Geminiで文章を整えています…');
+  try {
+    const result = await callApi('polishText', { token, text });
+    if (result.ok && result.text) {
+      beforePolishText = $('noteText').value;
+      $('noteText').value = result.text;
+      $('undoPolishBtn').disabled = false;
+      setMsg(msgEl, 'Geminiで整えました。内容を確認して「保管庫へ送る」を押してください。', 'success');
+      return true;
+    }
+    setMsg(msgEl, '整形できませんでした: ' + (result.error || '不明なエラー') + '（元の文章のままです）', 'error');
+    return false;
+  } catch (err) {
+    setMsg(msgEl, '整形できませんでした: ' + err.message + '（元の文章のままです）', 'error');
+    return false;
+  } finally {
+    btn.disabled = false; $('submitBtn').disabled = false; $('micBtn').disabled = false;
+    btn.textContent = '✨ Geminiで整える';
+    setVoiceStatus('');
+  }
+}
+$('polishBtn').addEventListener('click', () => {
+  if (isRecording) stopRecording(true); else polishNoteText();
+});
+$('undoPolishBtn').addEventListener('click', () => {
+  if (beforePolishText === null) return;
+  $('noteText').value = beforePolishText;
+  beforePolishText = null;
+  $('undoPolishBtn').disabled = true;
+  setMsg($('postMsg'), '整える前の文章に戻しました。', 'success');
+});
 
 // ---------- 添付画像（手書き・写真 共通） ----------
 let attachedImages = []; // {mimeType, data(base64 raw), previewUrl}
@@ -621,7 +773,8 @@ $('submitBtn').addEventListener('click', async () => {
   const token = localStorage.getItem('ks_token');
   if (!text && attachedImages.length === 0) { setMsg(msgEl, '内容を入力するか、手書き・写真を追加してください。', 'error'); return; }
   if (!token) { setMsg(msgEl, 'セッションが切れています。再ログインしてください。', 'error'); return; }
-  if (isRecording) stopRecording();
+  if (isRecording) { stopRecording(false); await new Promise((r) => setTimeout(r, 700)); }
+  const textToSave = $('noteText').value.trim();
 
   $('submitBtn').disabled = true;
   $('submitBtn').innerHTML = '<span class="loading"></span>Geminiで整形して保存中...';
@@ -629,12 +782,13 @@ $('submitBtn').addEventListener('click', async () => {
 
   try {
     const images = attachedImages.map((i) => ({ mimeType: i.mimeType, data: i.data }));
-    const result = await callApi('createMemo', { token, text, images });
+    const result = await callApi('createMemo', { token, text: textToSave, images });
     if (result.ok) {
       setMsg(msgEl, result.fileName + ' を保存しました。', 'success');
       $('resultBox').style.display = 'block';
       $('resultBox').textContent = result.content;
       $('noteText').value = '';
+      beforePolishText = null; $('undoPolishBtn').disabled = true;
       attachedImages = [];
       renderThumbs();
       refreshMemoList();
@@ -718,6 +872,16 @@ function buildMemoItem(memo) {
   return item;
 }
 function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ---------- バージョン表示 ----------
+(function renderVersion() {
+  const c = window.APP_CONFIG || {};
+  const el = $('appVersion');
+  if (!c.APP_VERSION) { el.textContent = '健二保管庫'; return; }
+  el.innerHTML = '健二保管庫 <b>v' + escapeHtml(String(c.APP_VERSION)) + '</b>' +
+    (c.UPDATED_AT ? '（' + escapeHtml(String(c.UPDATED_AT)) + ' 更新）' : '') +
+    (c.CHANGE_NOTE ? '<br>' + escapeHtml(String(c.CHANGE_NOTE)) : '');
+})();
 
 // ---------- 起動時 ----------
 (function init() {
